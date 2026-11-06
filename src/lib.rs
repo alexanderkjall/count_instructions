@@ -7,7 +7,9 @@
 //!
 //! The approach used by this crate is to single-step the function using the operating system debug
 //! API, optionally recording the address of each instruction. This is currently implemented only
-//! for Linux; for other operating systems, it will fail with an error.
+//! for Linux; for other operating systems, it will fail with an error. It will also fail with an
+//! error on RISC-V, since Linux does not implement single-stepping through the debug API on that
+//! architecture.
 //!
 //! Using the debug API to single-step the function has several drawbacks:
 //!
@@ -22,7 +24,7 @@
 //! # Examples
 //!
 //! ```
-//! # #[cfg(target_os = "linux")]
+//! # #[cfg(all(target_os = "linux", not(any(target_arch = "riscv32", target_arch = "riscv64"))))]
 //! # {
 //! use count_instructions::count_instructions;
 //!
@@ -42,7 +44,7 @@
 //! For a stronger test, you can store and later compare the instruction addresses:
 //!
 //! ```
-//! # #[cfg(target_os = "linux")]
+//! # #[cfg(all(target_os = "linux", not(any(target_arch = "riscv32", target_arch = "riscv64"))))]
 //! # {
 //! use count_instructions::count_instructions;
 //!
@@ -66,7 +68,7 @@
 //! whenever the instruction addresses from more than one execution will be compared later:
 //!
 //! ```
-//! # #[cfg(target_os = "linux")]
+//! # #[cfg(all(target_os = "linux", not(any(target_arch = "riscv32", target_arch = "riscv64"))))]
 //! # {
 //! use count_instructions::count_instructions;
 //! use count_instructions::Address;
@@ -98,7 +100,10 @@ extern crate std;
 
 use std::hint::black_box;
 
-#[cfg(target_os = "linux")]
+#[cfg(all(
+    target_os = "linux",
+    not(any(target_arch = "riscv32", target_arch = "riscv64"))
+))]
 mod unix;
 
 /// Represents the address of a machine instruction.
@@ -112,7 +117,13 @@ pub struct Instruction {
 
 impl Instruction {
     #[inline]
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    #[cfg_attr(
+        not(all(
+            target_os = "linux",
+            not(any(target_arch = "riscv32", target_arch = "riscv64"))
+        )),
+        allow(dead_code)
+    )]
     fn new(address: Address) -> Self {
         Self { address }
     }
@@ -151,10 +162,16 @@ where
     Ok(result.unwrap())
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(
+    target_os = "linux",
+    not(any(target_arch = "riscv32", target_arch = "riscv64"))
+))]
 use unix::count_instructions as count_instructions_impl;
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(
+    target_os = "linux",
+    not(any(target_arch = "riscv32", target_arch = "riscv64"))
+)))]
 fn count_instructions_impl(
     _f: &mut dyn FnMut(),
     _counter: &mut (dyn FnMut(&Instruction) + Send),
@@ -163,4 +180,19 @@ fn count_instructions_impl(
         std::io::ErrorKind::Unsupported,
         "instruction tracing not implemented for this platform",
     ))
+}
+
+#[cfg(test)]
+#[cfg(not(all(
+    target_os = "linux",
+    not(any(target_arch = "riscv32", target_arch = "riscv64"))
+)))]
+mod tests {
+    use crate::count_instructions;
+
+    #[test]
+    fn unsupported() {
+        let err = count_instructions(|| (), |_| ()).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::Unsupported);
+    }
 }
